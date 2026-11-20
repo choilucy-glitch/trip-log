@@ -107,6 +107,33 @@ async function toDataUrl(file, maxChars=500000, maxDim=2000){
   }catch(e){}
   return null;
 }
+/* PDF는 앞쪽 몇 장을 이어 붙인 그림으로 바꿔서 저장해요 (pdf.js는 PDF를 고를 때만 불러와요) */
+let pdfLib = null;
+async function loadPdfJs(){
+  if (pdfLib) return pdfLib;
+  await new Promise((ok, bad)=>{ const sc = document.createElement('script'); sc.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js'; sc.onload = ok; sc.onerror = bad; document.head.appendChild(sc); });
+  pdfLib = window.pdfjsLib; pdfLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  return pdfLib;
+}
+async function pdfToBlob(file, maxPages=3){
+  const lib = await loadPdfJs();
+  const pdf = await lib.getDocument({ data: await file.arrayBuffer() }).promise;
+  const n = Math.min(pdf.numPages, maxPages), pages = [];
+  for (let i=1; i<=n; i++){
+    const page = await pdf.getPage(i), vp0 = page.getViewport({ scale:1 }), sc = 1200 / vp0.width, vp = page.getViewport({ scale:sc });
+    const c = document.createElement('canvas'); c.width = Math.round(vp.width); c.height = Math.round(vp.height);
+    await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise; pages.push(c);
+  }
+  const out = document.createElement('canvas'); out.width = Math.max(...pages.map(c=>c.width)); out.height = pages.reduce((t,c)=>t+c.height+8, -8);
+  const g = out.getContext('2d'); g.fillStyle = '#d9dee5'; g.fillRect(0,0,out.width,out.height);
+  let y = 0; for (const c of pages){ g.drawImage(c, 0, y); y += c.height + 8; }
+  return await new Promise(r=>out.toBlob(r, 'image/png'));
+}
+async function fileToImage(file, maxChars, maxDim){
+  const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name||'');
+  if (isPdf){ try{ file = await pdfToBlob(file); }catch(e){ return null; } }
+  return await toDataUrl(file, maxChars, isPdf ? Math.max(maxDim, 2600) : maxDim);
+}
 function watch(ref, statusEl, onData){
   let done = false;
   const t = setTimeout(()=>{ if(!done && statusEl){ statusEl.textContent = '아직 연결되지 않았어요. 네트워크를 확인해 주세요.'; statusEl.classList.add('err'); } }, 10000);
@@ -391,7 +418,7 @@ function renderVouchers(){
         <input name="title" value="${h(v.title)}" required aria-label="이름">
         <select name="kind" aria-label="종류">${KINDS.map(k=>`<option ${k===(v.kind||'기타')?'selected':''}>${k}</option>`).join('')}</select>
         <textarea name="note" rows="3" aria-label="메모" placeholder="예약번호, PIN, 시간 등">${h(v.note||'')}</textarea>
-        <label class="hint" for="vimg-${h(v.id)}">사진 바꾸기 (선택)</label><input type="file" id="vimg-${h(v.id)}" name="img" accept="image/*">
+        <label class="hint" for="vimg-${h(v.id)}">사진 바꾸기 (선택)</label><input type="file" id="vimg-${h(v.id)}" name="img" accept="image/*,application/pdf">
         <div class="btns" style="margin-top:0"><button class="btn primary" type="submit">저장</button><button class="btn" type="button" data-vcancel="1">취소</button><button type="button" class="del" data-del-v="${h(v.id)}" style="margin-left:auto">삭제</button></div>
         <p class="hint v-msg" style="margin:0"></p>
       </form>` : '';
@@ -414,20 +441,20 @@ $('vList').addEventListener('submit', async e=>{
   btn.disabled = true;
   try{
     const file = f.img.files[0];
-    if (file){ msg.textContent = '사진 줄이는 중…'; const img = await toDataUrl(file, 600000, 2200); if (!img) throw { code:'image' }; data.img = img; }
+    if (file){ msg.textContent = '사진 줄이는 중…'; const img = await fileToImage(file, 600000, 2200); if (!img) throw { code:'image' }; data.img = img; }
     await updateDoc(D('vouchers',id), data); vEditing = null; blurActive(); renderVouchers();
   }catch(err){ btn.disabled = false; msg.textContent = err.code==='image' ? '사진을 읽지 못했어요.' : '저장하지 못했어요 (' + (err.code||'error') + ').'; }
 });
-$('vFile').setAttribute('accept','image/*');
+$('vFile').setAttribute('accept','image/*,application/pdf');
 $('vForm').addEventListener('submit', async e=>{
   e.preventDefault();
   const f = $('vFile').files[0]; if (!f) return;
   const btn = $('vSubmit'); btn.disabled = true; $('vMsg').textContent = '올리는 중…';
   try{
-    const img = await toDataUrl(f, 600000, 2200); if (!img) throw { code:'image' };
+    const img = await fileToImage(f, 600000, 2200); if (!img) throw { code:'image' };
     await addDoc(C('vouchers'), { title:$('vTitle').value.trim(), kind:$('vKind').value, note:$('vNote').value.trim(), img, createdAt:Date.now() });
     e.target.reset(); $('vMsg').textContent = '저장했어요.';
-  }catch(err){ $('vMsg').textContent = err.code==='image' ? '사진을 읽지 못했어요. PDF는 화면 캡처해서 사진으로 올려주세요.' : '저장하지 못했어요 (' + (err.code||'error') + ').'; }
+  }catch(err){ $('vMsg').textContent = err.code==='image' ? '파일을 읽지 못했어요. 사진(JPG·PNG)이나 PDF로 올려주세요.' : '저장하지 못했어요 (' + (err.code||'error') + ').'; }
   btn.disabled = false;
 });
 
@@ -617,7 +644,7 @@ $('vjwGrid').addEventListener('click', e=>{
 $('vjwFile').addEventListener('change', async ()=>{
   const f = $('vjwFile').files[0]; if (!f || vjwTarget===null) return;
   $('vjwMsg').textContent = `${MEMBERS[vjwTarget]} QR 올리는 중…`;
-  try{ const img = await toDataUrl(f, 600000, 2200); if (!img) throw { code:'image' }; await setDoc(D('vjw',vkey(vjwTarget)), { img, updatedAt:Date.now() }); $('vjwMsg').textContent = '저장했어요.'; }
+  try{ const img = await fileToImage(f, 600000, 2200); if (!img) throw { code:'image' }; await setDoc(D('vjw',vkey(vjwTarget)), { img, updatedAt:Date.now() }); $('vjwMsg').textContent = '저장했어요.'; }
   catch(err){ $('vjwMsg').textContent = err.code==='image' ? '사진을 읽지 못했어요.' : '저장하지 못했어요 (' + (err.code||'error') + ').'; }
   vjwTarget = null;
 });
