@@ -69,6 +69,7 @@ function applyTrip(t){
   if (DAYKEYS.includes(todayKey)) { $('mDay').value = todayKey; $('pDay').value = todayKey; }
   else { if (mCur) $('mDay').value = mCur; if (pCur) $('pDay').value = pCur; }
   $('vjw').hidden = !!(t.country && t.country !== 'JP');
+  renderEntryInfo(t);
   $('guidesHost').innerHTML = (t.guides || []).join('');
   unhideInner($('guidesHost'));
   fillPeople(); renderDays(); renderTripSettings();
@@ -621,6 +622,16 @@ $('vjwFile').addEventListener('change', async ()=>{
   vjwTarget = null;
 });
 
+/* ---------- Visit Japan Web에 입력할 정보 (복사 버튼) ---------- */
+const ENTRY_FIELDS = [['flight','항공편'],['airport','도착 공항'],['arrive','도착 날짜·시간'],['stayName','첫 숙소 이름'],['stayAddress','숙소 주소 (일본어)'],['stayAddressEn','숙소 주소 (영문)'],['stayPhone','숙소 전화']];
+function renderEntryInfo(t){
+  const e = t.entry || {};
+  const rows = ENTRY_FIELDS.filter(([k])=>e[k]).map(([k,l])=>`<dt>${l}</dt><dd>${h(e[k])} <button class="copy" data-copy="${h(e[k])}">복사</button></dd>`).join('');
+  $('vjwInfo').innerHTML = rows
+    ? `<div class="card" style="margin-top:12px"><h3>입력할 정보</h3><dl class="kv" style="margin-top:6px">${rows}</dl><p class="hint" style="margin:8px 0 0">준비 탭 → 여행 정보 고치기에서 바꿀 수 있어요.</p></div>`
+    : `<p class="hint" style="margin:10px 0 0">준비 탭 → 여행 정보 고치기에서 항공편·첫 숙소를 넣으면 여기서 복사할 수 있어요.</p>`;
+}
+
 /* ---------- 여행 정보 고치기 ---------- */
 function renderTripSettings(){
   const f = $('tsForm'); if (!TRIP || f.contains(document.activeElement)) return;
@@ -633,6 +644,7 @@ function renderTripSettings(){
     <div class="frow"><label>태그 (쉼표로 구분)</label><input name="tags" value="${h((TRIP.tags||[]).join(', '))}"></div>
     <div class="frow"><label>함께 가는 사람 (쉼표로 구분)</label><input name="members" value="${h((TRIP.members||[]).join(', '))}"></div>
     <div class="frow"><label>로그인 이메일 (쉼표로 구분 · 이 사람들만 이 여행을 볼 수 있어요)</label><input name="emails" value="${h((TRIP.memberEmails||[]).join(', '))}"></div>
+    <fieldset class="frow entry-set"><legend>입국 정보 <span class="hint">· Visit Japan Web 입력용 (준비 탭에서 복사 버튼으로 보여요)</span></legend>${ENTRY_FIELDS.map(([k,l])=>`<div class="frow"><label>${l}</label><input name="e_${k}" value="${h((TRIP.entry||{})[k]||'')}"></div>`).join('')}</fieldset>
     <div class="frow"><label>숙소 <span class="hint">· 한 줄에 "체크인 날짜 | 체크아웃 날짜 | 이름 | 설명 | 지도 검색어" (홈 화면 '오늘 숙소'에 쓰여요)</span></label><textarea name="stays" rows="3">${h(stays)}</textarea></div>
     <div class="btns"><button class="btn primary" type="submit">저장</button><span class="hint" id="tsMsg"></span></div>
     ${IS_ADMIN ? `<details class="danger"><summary>이 여행 삭제</summary><p class="hint">여행 정보와 일정이 지워져요. 사진·가계부 등 하위 데이터는 Firebase 콘솔에서 따로 지워야 해요.</p><button type="button" class="del" id="tsDelete">이 여행 삭제</button></details>` : ''}`;
@@ -648,7 +660,7 @@ $('tsForm').addEventListener('submit', async e=>{
   const emails = list(f.emails.value.toLowerCase());
   if (ME && !emails.includes(ME)){ $('tsMsg').textContent = '내 이메일을 빼면 이 여행을 못 보게 돼요.'; return; }
   try{
-    await updateDoc(TRIP_DOC(), { title:f.title.value.trim(), start, end, eyebrow:f.eyebrow.value.trim(), quote:f.quote.value.trim(), tags:list(f.tags.value), members:list(f.members.value), memberEmails:emails, stays, days, updatedAt:Date.now() });
+    await updateDoc(TRIP_DOC(), { title:f.title.value.trim(), start, end, eyebrow:f.eyebrow.value.trim(), quote:f.quote.value.trim(), tags:list(f.tags.value), members:list(f.members.value), memberEmails:emails, stays, days, entry:Object.fromEntries(ENTRY_FIELDS.map(([k])=>[k, f['e_'+k].value.trim()])), updatedAt:Date.now() });
     $('tsMsg').textContent = '저장했어요.'; blurActive();
   }catch(err){ fail($('tsMsg'), err); }
 });
@@ -739,7 +751,8 @@ $('migrateForm').addEventListener('submit', async e=>{
     const names = membersDoc.exists() ? membersDoc.data().names : [];
     const days = fixStops(old.DAYS.map(d=>({ iso:d.iso, title:d.title, sub:d.sub, route:d.route, stops:d.stops })));
     const trip = { title:'니가타 설국 여행', start:'2026-12-10', end:'2026-12-13', eyebrow:'NIIGATA · YUZAWA · WINTER 2026', quote:'국경의 긴 터널을 빠져나오자 설국이었다.',
-      tags:['4명','렌터카','스키 1일','료칸 2박'], members:names, memberEmails:emails, country:'JP', days, guides:[old.SKI_HTML, old.DRIVE_HTML],
+      tags:['4명','렌터카','스키 1일','료칸 2박'],
+      entry:{ flight:'KE2197 (대한항공)', airport:'니가타 공항 (KIJ)', arrive:'2026-12-10 10:25', stayName:'Yukemuri no Yado Yukinohana', stayAddress:'新潟県南魚沼郡湯沢町湯沢317-1', stayAddressEn:'317-1 Yuzawa, Yuzawa-machi, Minamiuonuma-gun, Niigata 949-6101', stayPhone:'025-785-2511' }, members:names, memberEmails:emails, country:'JP', days, guides:[old.SKI_HTML, old.DRIVE_HTML],
       stays:[{from:'2026-12-10',to:'2026-12-12',name:'유케무리노야도 유키노하나',sub:'체크인 15:00–19:00 · 무료 주차 · 에치고유자와역 도보 3분',q:'湯けむりの宿 雪の花 湯沢町'},{from:'2026-12-12',to:'2026-12-13',name:'호텔 글로벌 뷰 니가타',sub:'체크인 15:00 이후 · 차는 리파크 니가타 만다이에',q:'ホテルグローバルビュー新潟'}],
       createdAt:Date.now(), updatedAt:Date.now() };
     msg.textContent = '복사하는 중…';
