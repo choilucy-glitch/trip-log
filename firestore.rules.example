@@ -1,0 +1,22 @@
+// Firebase 콘솔 → Firestore Database → 규칙(Rules)에 붙여넣고 "게시".
+// 실제 이메일은 이 저장소에 올리지 말고 콘솔에서만 바꾸세요.
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn(){ return request.auth != null && request.auth.token.email_verified == true; }
+    function me(){ return request.auth.token.email.lower(); }
+    // 새 여행을 만들 수 있는 사람
+    function creator(){ return signedIn() && me() in ['owner@example.com']; }
+    function tripMember(tripId){ return signedIn() && me() in get(/databases/$(database)/documents/trips/$(tripId)).data.memberEmails; }
+
+    match /trips/{tripId} {
+      allow read: if signedIn() && me() in resource.data.memberEmails;
+      allow create: if creator() && me() in request.resource.data.memberEmails;
+      allow update: if signedIn() && me() in resource.data.memberEmails;
+      allow delete: if creator() && me() in resource.data.memberEmails;
+      match /{rest=**} {
+        allow read, write: if tripMember(tripId);
+      }
+    }
+  }
+}
