@@ -650,12 +650,12 @@ $('vjwFile').addEventListener('change', async ()=>{
 });
 
 /* ---------- Visit Japan Web에 입력할 정보 (복사 버튼) ---------- */
-const ENTRY_FIELDS = [['flight','항공편'],['airport','도착 공항'],['arrive','도착 날짜·시간'],['stayName','첫 숙소 이름'],['stayAddress','숙소 주소 (일본어)'],['stayAddressEn','숙소 주소 (영문)'],['stayPhone','숙소 전화']];
+const ENTRY_FIELDS = [['flight','항공편'],['airport','도착 공항'],['arrive','도착 날짜·시간'],['stayName','첫 숙소 이름 (영문)'],['stayAddressEn','숙소 주소 (영문)'],['stayPhone','숙소 전화'],['stayAddress','숙소 주소 (일본어 · 참고용)']];
 function renderEntryInfo(t){
   const e = t.entry || {};
   const rows = ENTRY_FIELDS.filter(([k])=>e[k]).map(([k,l])=>`<dt>${l}</dt><dd>${h(e[k])} <button class="copy" data-copy="${h(e[k])}">복사</button></dd>`).join('');
   $('vjwInfo').innerHTML = rows
-    ? `<div class="card" style="margin-top:12px"><h3>입력할 정보</h3><dl class="kv" style="margin-top:6px">${rows}</dl><p class="hint" style="margin:8px 0 0">준비 탭 → 여행 정보 고치기에서 바꿀 수 있어요.</p></div>`
+    ? `<div class="card" style="margin-top:12px"><h3>입력할 정보</h3><p class="hint" style="margin:0 0 4px">Visit Japan Web은 숙소 이름·주소를 <b>영문</b>으로 넣어요.</p><dl class="kv" style="margin-top:6px">${rows}</dl><p class="hint" style="margin:8px 0 0">준비 탭 → 여행 정보 고치기에서 바꿀 수 있어요.</p></div>`
     : `<p class="hint" style="margin:10px 0 0">준비 탭 → 여행 정보 고치기에서 항공편·첫 숙소를 넣으면 여기서 복사할 수 있어요.</p>`;
 }
 
