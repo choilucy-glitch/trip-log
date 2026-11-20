@@ -27,6 +27,9 @@ const IC = {
   pen:'<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg>'
 };
 const q = s => 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(s);
+// 추가 지도는 [{n:이름, q:검색어}]로 저장해요 (Firestore는 목록 안의 목록을 못 담아요). 예전 [[이름,검색어]] 형식도 읽어요.
+const mapsOf = S => (S.maps||[]).map(m => Array.isArray(m) ? m : [m.n, m.q]);
+const fixStops = days => (days||[]).map(d => ({ ...d, stops: (d.stops||[]).map(st => st.maps ? { ...st, maps: mapsOf(st).map(([n,qq])=>({n, q:qq})) } : st) }));
 const TAGNAME = {move:'이동', see:'관광', food:'식사', stay:'숙소', ski:'스키', shop:'쇼핑', opt:'선택'};
 const segs = (t, sep) => { const p = String(t||'').split(sep), k = sep.trim();
   return p.map((x,i)=> k==='→' ? `<span class="seg">${i?k+' ':''}${x}</span>` : `<span class="seg">${x}${i<p.length-1?' '+k:''}</span>`).join(' '); };
@@ -142,7 +145,7 @@ function stopForm(S, key){
     <div class="frow"><label>한 줄 설명</label><input name="s" value="${h(S.s||'')}"></div>
     <div class="frow"><label>내용 <span class="hint">· 빈 줄로 문단 나누기 · "- "로 시작하면 목록 · "! "로 시작하면 노란 주의 상자 · **굵게**</span></label><textarea name="body" rows="6">${h(htmlToMarkup(S.body||''))}</textarea></div>
     <div class="frow"><label>지도 검색어 <span class="hint">· 구글맵·길찾기 버튼이 생겨요 (일본어 이름이 정확해요)</span></label><input name="map" value="${h(S.map||'')}"></div>
-    <div class="frow"><label>추가 지도 <span class="hint">· 한 줄에 "이름 | 검색어"</span></label><textarea name="maps" rows="2">${h((S.maps||[]).map(m=>m.join(' | ')).join('\n'))}</textarea></div>
+    <div class="frow"><label>추가 지도 <span class="hint">· 한 줄에 "이름 | 검색어"</span></label><textarea name="maps" rows="2">${h(mapsOf(S).map(m=>m.join(' | ')).join('\n'))}</textarea></div>
     <div class="frow"><label>링크 <span class="hint">· "이름 | 주소"</span></label><input name="link" value="${h(S.link ? S.link.join(' | ') : '')}"></div>
     <div class="btns"><button class="btn primary" type="submit">저장</button><button class="btn" type="button" data-st-cancel="1">취소</button>${key.endsWith(':new')?'':`<button type="button" class="del" data-st-del="${key}" style="margin-left:auto">이 일정 삭제</button>`}</div>
     <p class="hint st-msg" style="margin:0"></p>
@@ -165,9 +168,9 @@ function renderDays(){
       return `<li class="c-${S.tag||'see'}"><details class="stop" ${editing?'open':''}>
       <summary><span class="time">${h(S.t)}</span><span class="dot"></span><span class="cardline"><span class="ttl"><span class="tag ${S.tag||'see'}">${TAGNAME[S.tag]||'관광'}</span><b>${segs(S.ttl,' · ')}</b>${S.s?`<small>${S.s}</small>`:''}</span>${IC.chev}</span></summary>
       <div class="body">${editing ? stopForm(S, key) : `${S.body||''}
-       ${(S.map||S.link||(S.maps&&S.maps.length))?`<div class="btns">
+       ${(S.map||S.link||mapsOf(S).length)?`<div class="btns">
         ${S.map?`<a class="btn primary" target="_blank" rel="noopener" href="${q(S.map)}">${IC.pin}구글맵</a><a class="btn" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(S.map)}">${IC.car}길찾기</a>`:''}
-        ${(S.maps||[]).map(m=>`<a class="btn" target="_blank" rel="noopener" href="${q(m[1])}">${IC.pin}${h(m[0])}</a>`).join('')}
+        ${mapsOf(S).map(m=>`<a class="btn" target="_blank" rel="noopener" href="${q(m[1])}">${IC.pin}${h(m[0])}</a>`).join('')}
         ${S.link?`<a class="btn" target="_blank" rel="noopener" href="${h(S.link[1])}">${h(S.link[0])}</a>`:''}
        </div>${S.map?`<p class="jp" style="margin:10px 0 0">검색어 <span lang="ja">${esc(S.map)}</span></p>`:''}`:''}
        <div class="st-edit-bar"><button type="button" class="btn" data-st-edit="${key}">${IC.pen}고치기</button></div>`}
@@ -206,7 +209,7 @@ dayList.addEventListener('submit', async e=>{
   const [i, j] = key.split(':'); const di = Number(i);
   const pairs = txt => txt.split('\n').map(l=>l.split('|').map(x=>x.trim())).filter(p=>p.length>=2 && p[0] && p[1]).map(p=>[p[0], p.slice(1).join('|').trim()]);
   const S = { t:f.t.value, tag:f.tag.value, ttl:f.ttl.value.trim(), s:f.s.value.trim(), body:markupToHtml(f.body.value), map:f.map.value.trim() };
-  const mp = pairs(f.maps.value); if (mp.length) S.maps = mp;
+  const mp = pairs(f.maps.value); if (mp.length) S.maps = mp.map(([n,qq])=>({n, q:qq}));
   const lk = pairs(f.link.value); if (lk.length) S.link = lk[0];
   if (!S.ttl || !S.t) return;
   const days = cloneDays();
@@ -216,7 +219,7 @@ dayList.addEventListener('submit', async e=>{
 });
 function alertIn(f, err){ const m = f.querySelector('.st-msg') || f.appendChild(Object.assign(document.createElement('p'),{className:'hint'})); m.textContent = '저장하지 못했어요 (' + (err.code||'error') + ').'; }
 function cloneDays(){ return JSON.parse(JSON.stringify((TRIP.days||[]).map(d=>({ iso:d.iso, title:d.title||'', sub:d.sub||'', ...(d.route?{route:d.route}:{}), stops:(d.stops||[]).slice().sort((a,b)=>String(a.t).localeCompare(String(b.t))) })))); }
-async function saveDays(days){ days.forEach(d=>{ delete d.route; }); await updateDoc(TRIP_DOC(), { days, updatedAt: Date.now() }); }
+async function saveDays(days){ days.forEach(d=>{ delete d.route; }); await updateDoc(TRIP_DOC(), { days: fixStops(days), updatedAt: Date.now() }); }
 
 /* ---------- 화면 전환 ---------- */
 const VIEWS = ['trips','home','plan','book','money','photos','info'];
@@ -672,7 +675,7 @@ $('importFile').addEventListener('change', async ()=>{
   try{
     const data = JSON.parse(await f.text());
     let extra = 0;
-    if (data.trip){ const { id, ...rest } = data.trip; await setDoc(TRIP_DOC(), { ...rest, updatedAt:Date.now() }, { merge:true }); extra = 1; }
+    if (data.trip){ const { id, ...rest } = data.trip; if (rest.days) rest.days = fixStops(rest.days); await setDoc(TRIP_DOC(), { ...rest, updatedAt:Date.now() }, { merge:true }); extra = 1; }
     const n = await importInto(TRIP_ID, data, msg);
     msg.textContent = `완료! ${n + extra}개 항목을 넣었어요.`;
   }catch(err){ msg.textContent = '가져오지 못했어요 (' + (err.code || err.message || 'error') + ').'; }
@@ -714,6 +717,7 @@ $('tripImportFile').addEventListener('change', async ()=>{
     const data = JSON.parse(await f.text());
     if (!data.trip || !data.trip.id) throw new Error('여행 정보(trip.id)가 없는 파일이에요');
     const { id, ...rest } = data.trip;
+    if (rest.days) rest.days = fixStops(rest.days);
     if (rest.memberEmails) rest.memberEmails = rest.memberEmails.map(x=>x.toLowerCase());
     await setDoc(doc(db,'trips',id), { ...rest, updatedAt:Date.now() }, { merge:true });
     const n = await importInto(id, data, msg);
@@ -733,7 +737,7 @@ $('migrateForm').addEventListener('submit', async e=>{
     if (bookDoc.exists()) data.info.bookings = bookDoc.data();
     if (fxDoc.exists()) data.settings.fx = fxDoc.data();
     const names = membersDoc.exists() ? membersDoc.data().names : [];
-    const days = old.DAYS.map(d=>({ iso:d.iso, title:d.title, sub:d.sub, route:d.route, stops:d.stops }));
+    const days = fixStops(old.DAYS.map(d=>({ iso:d.iso, title:d.title, sub:d.sub, route:d.route, stops:d.stops })));
     const trip = { title:'니가타 설국 여행', start:'2026-12-10', end:'2026-12-13', eyebrow:'NIIGATA · YUZAWA · WINTER 2026', quote:'국경의 긴 터널을 빠져나오자 설국이었다.',
       tags:['4명','렌터카','스키 1일','료칸 2박'], members:names, memberEmails:emails, country:'JP', days, guides:[old.SKI_HTML, old.DRIVE_HTML],
       stays:[{from:'2026-12-10',to:'2026-12-12',name:'유케무리노야도 유키노하나',sub:'체크인 15:00–19:00 · 무료 주차 · 에치고유자와역 도보 3분',q:'湯けむりの宿 雪の花 湯沢町'},{from:'2026-12-12',to:'2026-12-13',name:'호텔 글로벌 뷰 니가타',sub:'체크인 15:00 이후 · 차는 리파크 니가타 만다이에',q:'ホテルグローバルビュー新潟'}],
